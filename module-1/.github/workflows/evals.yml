@@ -1,0 +1,44 @@
+name: evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  offline-checks:
+    name: offline checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - name: Run checks that do not call a model
+        run: uv run pytest tests/eval tests/test_cli.py tests/test_db.py tests/test_hw_holes.py tests/test_harbor_adapter.py tests/test_replay_harness.py -q
+
+  complete-evaluations:
+    name: Harbor evaluations
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      CARTWHEEL_MODEL: ${{ vars.CARTWHEEL_MODEL }}
+      PYTHONPATH: ${{ github.workspace }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+
+      # Homework 6: install Harbor 0.23.0.
+      # Generate the classified tasks in eval_cases/cases.jsonl.
+      # Run five attempts per task in fresh Docker containers.
+      # Pass the agent and judge provider keys to Harbor.
+      # Summarize the job and upload the job files with `if: always()` so a
+      # failed regression keeps its evidence.
