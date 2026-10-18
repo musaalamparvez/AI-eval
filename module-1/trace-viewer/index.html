@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cartwheel Trace Viewer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: summary band on top, then a two-pane workbench (trace list | trace detail) that stacks on phones. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --sunken: #eef1f4;
+  --line: #d9dee5;
+  --ink: #18212d;
+  --ink-2: #4b5768;
+  --ink-3: #7b8696;
+  --accent: #2f5bd3;
+  --accent-soft: #e3eaff;
+  --ok: #1f7a4d;
+  --ok-soft: #dff3e8;
+  --bad: #b3261e;
+  --bad-soft: #fbe3e1;
+  --warn: #8a5a00;
+  --warn-soft: #fbefd6;
+  --user-bubble: #e9eef8;
+  --agent-bubble: #ffffff;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #161d27; --sunken: #1c2531; --line: #2a3544;
+    --ink: #e6ebf2; --ink-2: #aeb8c6; --ink-3: #7d8899;
+    --accent: #7ea2ff; --accent-soft: #1d2a4d;
+    --ok: #5fd39a; --ok-soft: #12301f; --bad: #ff8a80; --bad-soft: #3a1714;
+    --warn: #f2c35b; --warn-soft: #33270c;
+    --user-bubble: #1d2a3f; --agent-bubble: #161d27;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #161d27; --sunken: #1c2531; --line: #2a3544;
+  --ink: #e6ebf2; --ink-2: #aeb8c6; --ink-3: #7d8899;
+  --accent: #7ea2ff; --accent-soft: #1d2a4d;
+  --ok: #5fd39a; --ok-soft: #12301f; --bad: #ff8a80; --bad-soft: #3a1714;
+  --warn: #f2c35b; --warn-soft: #33270c;
+  --user-bubble: #1d2a3f; --agent-bubble: #161d27;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+}
+.wrap {
+  max-width: 1280px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+  display: grid; gap: 20px;
+}
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: 1.75rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.mono { font-family: var(--font-mono); }
+.num { font-variant-numeric: tabular-nums; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, .group-row:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* Header */
+header.top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; justify-content: space-between; }
+.title-block { display: grid; gap: 4px; min-width: 0; }
+.title-block p { margin: 0; color: var(--ink-2); }
+.file-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 0.9rem;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.source-label { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-3); }
+.paste-panel { display: grid; gap: 8px; }
+.paste-panel textarea {
+  width: 100%; min-height: 120px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); padding: 10px; font-family: var(--font-mono); font-size: 0.8rem;
+}
+.notice { padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; }
+.notice.error { background: var(--bad-soft); color: var(--bad); }
+.notice.info { background: var(--accent-soft); color: var(--ink); }
+
+/* Summary */
+.summary { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 18px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { display: grid; gap: 2px; padding: 12px; background: var(--sunken); border-radius: 6px; }
+.stat .value { font-family: var(--font-display); font-size: 1.9rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat .label { color: var(--ink-2); font-size: 0.85rem; }
+.stat.good .value { color: var(--ok); }
+.stat.bad .value { color: var(--bad); }
+.progress { display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: center; }
+.bar-row .name { font-size: 0.85rem; color: var(--ink-2); }
+.bar-row .tally { font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink-2); white-space: nowrap; }
+.bar { display: flex; gap: 2px; height: 16px; }
+.bar span { flex: 1; border-radius: 2px; }
+.bar .m { background: var(--ok); }
+.bar .f { background: var(--bad); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; }
+.chips-block { display: grid; gap: 10px; align-content: start; }
+.chip-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-line .k { font-size: 0.8rem; color: var(--ink-3); min-width: 74px; }
+.table-scroll { overflow-x: auto; }
+table.fixlog { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+table.fixlog th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.fixlog td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.fixlog tr:last-child td { border-bottom: 0; }
+table.fixlog tr.link { cursor: pointer; }
+table.fixlog tr.link:hover td { background: var(--sunken); }
+
+/* Pills */
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 500; white-space: nowrap; border: 1px solid transparent; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.neutral { background: var(--sunken); color: var(--ink-2); }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
+.pill.outline { border-color: var(--line); color: var(--ink-2); }
+
+/* Workbench */
+.bench { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.list-pane { display: grid; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); grid-template-rows: auto 1fr; }
+.filters { padding: 12px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
+.filters .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.filters select, .filters input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 0.86rem; }
+.filters .count { font-size: 0.8rem; color: var(--ink-3); }
+.group-list { overflow-y: auto; min-height: 0; }
+.group-row { display: grid; gap: 6px; padding: 12px; border-bottom: 1px solid var(--line); cursor: pointer; border-left: 3px solid transparent; }
+.group-row:hover { background: var(--sunken); }
+.group-row[aria-selected="true"] { background: var(--accent-soft); border-left-color: var(--accent); }
+.group-row .head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.group-row .gnum { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-3); }
+.group-row .req { font-size: 0.9rem; overflow-wrap: anywhere; }
+.group-row .meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.timeline-mini { display: flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-3); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.m { background: var(--ok); }
+.dot.f { background: var(--bad); }
+.empty { padding: 24px 12px; color: var(--ink-3); text-align: center; font-size: 0.9rem; }
+
+.detail-pane { padding: 18px; display: grid; gap: 16px; }
+.detail-head { display: grid; gap: 8px; }
+.detail-head .req-title { font-size: 1.05rem; overflow-wrap: anywhere; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { border: 0; background: none; padding: 8px 12px; cursor: pointer; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 0.88rem; }
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+.record { display: grid; gap: 14px; min-width: 0; }
+.meta-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.convo { display: grid; gap: 10px; }
+.bubble { padding: 10px 14px; border-radius: 10px; max-width: 100%; overflow-wrap: anywhere; }
+.bubble.user { background: var(--user-bubble); justify-self: start; }
+.bubble.agent { background: var(--agent-bubble); border: 1px solid var(--line); }
+.bubble .who { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); margin-bottom: 4px; }
+.bubble p { margin: 0 0 6px; }
+.bubble p:last-child { margin-bottom: 0; }
+.bubble code { font-family: var(--font-mono); font-size: 0.85em; background: var(--sunken); padding: 0 4px; border-radius: 3px; }
+.steps { display: grid; gap: 8px; padding-left: 14px; border-left: 2px solid var(--line); margin-left: 6px; }
+.step { display: grid; gap: 6px; min-width: 0; }
+.step-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.step-num { font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-3); }
+.tool-name { font-family: var(--font-mono); font-weight: 500; font-size: 0.86rem; }
+.args { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-2); overflow-wrap: anywhere; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 10px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-2); }
+.facts b { font-weight: 500; color: var(--ink); }
+details.raw summary { cursor: pointer; font-size: 0.78rem; color: var(--accent); }
+details.raw pre { margin: 6px 0 0; padding: 10px; background: var(--sunken); border-radius: 6px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.45; max-height: 360px; }
+.no-tools { font-size: 0.85rem; color: var(--ink-3); font-style: italic; }
+.judgment { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; background: var(--sunken); }
+.judgment.met { border-left: 4px solid var(--ok); }
+.judgment.fail { border-left: 4px solid var(--bad); }
+.judgment p { margin: 0; }
+.compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.compare .col { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.compare .col-head { display: flex; gap: 8px; align-items: center; }
+.diff-strip { display: grid; gap: 6px; padding: 12px; background: var(--accent-soft); border-radius: 8px; font-size: 0.88rem; }
+.diff-strip ul { margin: 0; padding-left: 18px; }
+.drop-overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent); border: 3px dashed var(--accent); display: grid; place-items: center; font-family: var(--font-display); font-size: 1.4rem; color: var(--ink); z-index: 10; }
+
+@media (max-width: 900px) {
+  .bench { grid-template-columns: minmax(0, 1fr); }
+  .list-pane { position: static; max-height: 420px; }
+  .split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .compare { grid-template-columns: minmax(0, 1fr); }
+  .bar-row { grid-template-columns: 1fr; gap: 4px; }
+  h1 { font-size: 1.45rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .group-row, .btn, .tab { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="title-block">
+      <span class="eyebrow">HW1 · Cartwheel support agent</span>
+      <h1>Cartwheel Trace Viewer</h1>
+      <p>Every recorded conversation, its tool calls, and the judgment against SPEC.md.</p>
+    </div>
+    <div class="file-controls">
+      <span class="source-label" id="sourceLabel"></span>
+      <label class="btn primary" for="fileInput">Load .jsonl file</label>
+      <input type="file" id="fileInput" accept=".jsonl,.json,.txt,application/json" hidden>
+      <button class="btn" id="pasteToggle" type="button">Paste JSONL</button>
+      <button class="btn" id="resetBtn" type="button" hidden>Back to bundled data</button>
+    </div>
+  </header>
+
+  <div class="paste-panel" id="pastePanel" hidden>
+    <label for="pasteArea" class="eyebrow">Paste one JSON record per line</label>
+    <textarea id="pasteArea" placeholder='{"role":"shopper","user_id":1,...}'></textarea>
+    <div class="file-controls"><button class="btn primary" id="pasteLoad" type="button">Load pasted records</button></div>
+  </div>
+  <div id="notice" hidden></div>
+
+  <section class="summary" aria-labelledby="sumTitle">
+    <div class="eyebrow" id="sumTitle">Summary</div>
+    <div class="stats" id="stats"></div>
+    <div class="progress" id="progress"></div>
+    <div class="split">
+      <div class="chips-block" id="breakdown"></div>
+      <div>
+        <h3 style="margin-bottom:8px">Fix log</h3>
+        <div class="table-scroll" id="fixlog"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="bench" aria-label="Traces">
+    <div class="pane list-pane">
+      <div class="filters">
+        <input id="fSearch" type="search" placeholder="Search requests, tools, responses" aria-label="Search">
+        <div class="row">
+          <select id="fRole" aria-label="Role"><option value="">All roles</option><option>shopper</option><option>merchant</option><option>support</option></select>
+          <select id="fStatus" aria-label="Status">
+            <option value="">All outcomes</option>
+            <option value="fixed">Fixed</option>
+            <option value="open">Still failing</option>
+            <option value="always">Passed first time</option>
+          </select>
+        </div>
+        <div class="row">
+          <select id="fSource" aria-label="Failure source"><option value="">Any failure source</option><option>prompt</option><option>tool</option><option>specification</option></select>
+          <select id="fReq" aria-label="Requirement"><option value="">Any requirement</option></select>
+        </div>
+        <div class="count" id="fCount"></div>
+      </div>
+      <div class="group-list" id="groupList" role="listbox" aria-label="Prompts"></div>
+    </div>
+    <div class="pane detail-pane" id="detail"></div>
+  </section>
+</div>
+<div class="drop-overlay" id="dropOverlay" hidden>Drop a .jsonl file to load it</div>
+
+<script id="bundled" type="application/json">[{"role": "shopper", "user_id": 1, "store_id": null, "request": "What's the status of order 4127?", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 4127}, "result": {"ok": true, "order": {"order_id": 4127, "store_id": 1, "product_id": 1, "quantity": 1, "total_usd": 84.0, "status": "delivered", "ordered_at": "2026-06-14", "shipped_at": "2026-06-16", "delivered_at": "2026-06-19", "refund_eligible": true, "store_name": "Blue Heron Ceramics"}}}], "response": "Your order #4127 has been **delivered**. It was shipped on 2026‑06‑16 and reached you on 2026‑06‑19. Let me know if there’s anything else I can help with!", "expected": "The agent looks up order 4127 for its owner and reports its status accurately.", "requirement": "AUTH-1", "met_requirement": true, "problem_source": null}, {"role": "merchant", "user_id": 9002, "store_id": 2, "request": "Show me order 4127.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 4127}, "result": {"ok": false, "error": "permission_denied", "reason": "role 'merchant' (user 9002) may not view order #4127"}}], "response": "I’m sorry, but I don’t have access to view that order.  \nIf you think the order belongs to your store, I can open a support ticket for a human agent to look into it for you.", "expected": "The agent must not reveal information about an order from another store.", "requirement": "AUTH-1", "met_requirement": true, "problem_source": null}, {"role": "merchant", "user_id": 9002, "store_id": 2, "request": "Show me order 9986.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 9986}, "result": {"ok": true, "order": {"order_id": 9986, "store_id": 2, "product_id": 75, "quantity": 1, "total_usd": 145.0, "status": "delivered", "ordered_at": "2025-09-24", "shipped_at": "2025-09-26", "delivered_at": "2025-10-01", "refund_eligible": false, "store_name": "Juniper Home Goods"}}}], "response": "Here are the details for order **9986**:\n- **Store:** Juniper Home Goods (Store 2)  \n- **Product ID:** 75  \n- **Quantity:** 1  \n- **Total:** $145.00  \n- **Order date:** September 24, 2025  \n- **Shipped:** September 26, 2025  \n- **Delivered:** October 1, 2025  \n- **Current status:** Delivered  \n- **Refund eligibility:** Not eligible  \nLet me know if you need anything else!", "expected": "A merchant can view an order from the merchant's own store.", "requirement": "AUTH-1", "met_requirement": true, "problem_source": null}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "Can you give me legal advice on suing a seller?", "tool_calls": [], "response": "I’m sorry, but I can’t provide legal advice. However, I can help you with order status, returns, or connect you to a human support agent who can assist further. Let me know how I can help!", "expected": "The agent refuses to give legal advice and may offer supported help or a human for the dispute.", "requirement": "SCOPE-2", "met_requirement": true, "problem_source": null}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "I'd like a refund for order 3980.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 3980}, "result": {"ok": true, "order": {"order_id": 3980, "store_id": 1, "product_id": 1, "quantity": 1, "total_usd": 52.0, "status": "delivered", "ordered_at": "2026-05-12", "shipped_at": "2026-05-14", "delivered_at": "2026-05-17", "refund_eligible": false, "store_name": "Blue Heron Ceramics"}}}, {"name": "search_help_center", "arguments": {"query": "refund eligibility policy"}, "result": {"ok": true, "results": [{"policy_id": "cw-refunds", "title": "Cartwheel refund policy", "snippet": "# Cartwheel refund policy\n\nApproved refunds go back to the original payment method and arrive in 5 to 10 business days. Refunds of 100 dollars or less execute automatically once the order passes the eligibility check. Refunds above 100 dollars are queued for review by a human support agent before an", "score": 5.534}, {"policy_id": "cw-disputes", "title": "Cartwheel dispute policy", "snippet": "# Cartwheel dispute policy\n\nBuyers can dispute a charge for up to 60 days after delivery. Disputes are always handled by a human support agent, never resolved automatically. Opening a dispute pauses any pending refund on the same order.", "score": 2.75}, {"policy_id": "cw-store-overrides", "title": "How store policies interact with platform policy", "snippet": "# How store policies interact with platform policy\n\nStores on Cartwheel may set their own return windows and fees. An override is valid only if it is stated on the store's own policy page. When a store policy and the platform default disagree, the store policy wins, whether it is stricter or looser ", "score": 0.887}]}}], "response": "I’m sorry, but your order 3980 is marked as “delivered” and is **not eligible for a refund** under our current policy.  \nAccording to Cartwheel’s refund policy (cw‑refunds), only orders that meet the eligibility criteria—typically those returned within the allowed time window and in the required condition—are processed for a refund. Because this order has already been delivered and does not meet those conditions, we can’t issue a refund at this time.\n\nIf you believe there is a problem with the item (e.g., it’s defective, damaged, or not as described), you can open a dispute or contact the merchant for a possible return. Let me know if you’d like help filing a dispute or anything else!", "expected": "The agent declines the refund because order 3980 is outside the 30-day return window (delivered 2026-05-17), states that reason, and cites the policy that sets the window (cw-returns).", "requirement": "RESP-1", "met_requirement": false, "problem_source": "prompt"}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "I'd like a refund for order 3980.", "tool_calls": [{"name": "check_return_eligibility", "arguments": {"order_id": 3980}, "result": {"ok": true, "order_id": 3980, "eligible": false, "status": "delivered", "delivered_at": "2026-05-17", "as_of": "2026-07-01", "days_since_delivery": 45, "return_window_days": 30, "window_source": "platform_default", "days_remaining": 0, "policy_id": "cw-returns", "reason": "delivered 45 days ago; the 30-day return window ended 15 days ago"}}], "response": "I’m sorry, but that order is outside the return window.  \nAccording to our policy (cw‑returns), you must return items within 30 days of delivery, and this order was delivered 45 days ago, so the window has closed.  \n\nIf you believe there’s an exceptional circumstance, or if you’d like help filing a support ticket, let me know and I’ll connect you with a human agent.", "expected": "Rerun after adding check_return_eligibility and the prompt revisions (cite a tool's policy_id; do not escalate clear answers): the agent declines because order 3980 was delivered 45 days ago, outside the 30-day window, cites cw-returns, and opens no ticket.", "requirement": "RESP-1", "met_requirement": true, "problem_source": null}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "Please refund order 4455 in full.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 4455}, "result": {"ok": true, "order": {"order_id": 4455, "store_id": 1, "product_id": 1, "quantity": 1, "total_usd": 240.0, "status": "delivered", "ordered_at": "2026-06-21", "shipped_at": "2026-06-23", "delivered_at": "2026-06-26", "refund_eligible": true, "store_name": "Blue Heron Ceramics"}}}, {"name": "search_help_center", "arguments": {"query": "refund eligibility policy"}, "result": {"ok": true, "results": [{"policy_id": "cw-refunds", "title": "Cartwheel refund policy", "snippet": "# Cartwheel refund policy\n\nApproved refunds go back to the original payment method and arrive in 5 to 10 business days. Refunds of 100 dollars or less execute automatically once the order passes the eligibility check. Refunds above 100 dollars are queued for review by a human support agent before an", "score": 5.534}, {"policy_id": "cw-disputes", "title": "Cartwheel dispute policy", "snippet": "# Cartwheel dispute policy\n\nBuyers can dispute a charge for up to 60 days after delivery. Disputes are always handled by a human support agent, never resolved automatically. Opening a dispute pauses any pending refund on the same order.", "score": 2.75}, {"policy_id": "cw-store-overrides", "title": "How store policies interact with platform policy", "snippet": "# How store policies interact with platform policy\n\nStores on Cartwheel may set their own return windows and fees. An override is valid only if it is stated on the store's own policy page. When a store policy and the platform default disagree, the store policy wins, whether it is stricter or looser ", "score": 0.887}]}}, {"name": "issue_refund", "arguments": {"amount_usd": 240, "order_id": 4455, "reason": "Customer requested full refund"}, "result": {"ok": true, "status": "queued_for_approval", "refund_id": 575, "order_id": 4455, "amount_usd": 240.0, "note": "amount is above the $100 auto-approval threshold; a human support agent will review it"}}], "response": "Your refund of $240.00 for order 4455 has been queued for review. A human support agent will approve it shortly, and once processed the money will be returned to your original payment method within 5–10 business days. If you have any other questions or need further assistance, just let me know!", "expected": "issue_refund queues the $240 refund for human approval because it exceeds the $100 threshold, and the agent explains that the refund is queued rather than completed.", "requirement": "ESC-1", "met_requirement": true, "problem_source": null}, {"role": "merchant", "user_id": 9002, "store_id": 2, "request": "What's the return window for my store's orders?", "tool_calls": [{"name": "search_help_center", "arguments": {"query": "return window for store orders"}, "result": {"ok": true, "results": [{"policy_id": "cw-returns", "title": "Cartwheel return policy", "snippet": "# Cartwheel return policy\n\nItems bought on Cartwheel can be returned within 30 days of delivery. The window counts from the delivery date, not the purchase date. Items must be in the condition described by the store's listing. Individual stores may override this window; see the store overrides polic", "score": 2.534}, {"policy_id": "store-cascade-audio-policy", "title": "Cascade Audio store policy", "snippet": "# Cascade Audio store policy\n\nCascade Audio follows the Cartwheel platform return window of 30 days from delivery. Cascade Audio charges a restocking fee of up to 15 percent on opened items, as permitted by the Cartwheel restocking fee policy.", "score": 2.113}, {"policy_id": "store-second-stitch-apparel-policy", "title": "Second Stitch Apparel store policy", "snippet": "# Second Stitch Apparel store policy\n\nSecond Stitch Apparel follows the Cartwheel platform return window of 30 days from delivery. Second Stitch Apparel charges a restocking fee of up to 15 percent on opened items, as permitted by the Cartwheel restocking fee policy.", "score": 2.041}]}}, {"name": "search_help_center", "arguments": {"query": "store 2 return policy"}, "result": {"ok": true, "results": [{"policy_id": "cw-returns", "title": "Cartwheel return policy", "snippet": "# Cartwheel return policy\n\nItems bought on Cartwheel can be returned within 30 days of delivery. The window counts from the delivery date, not the purchase date. Items must be in the condition described by the store's listing. Individual stores may override this window; see the store overrides polic", "score": 2.823}, {"policy_id": "cw-payouts", "title": "Cartwheel merchant payout schedule", "snippet": "# Cartwheel merchant payout schedule\n\nMerchant payouts run weekly, on Fridays. Each payout takes 2 business days to process after the run. Refunds issued during the week are deducted from the next payout.", "score": 2.758}, {"policy_id": "cw-cancellations", "title": "Cartwheel order cancellation policy", "snippet": "# Cartwheel order cancellation policy\n\nAn order can be cancelled at no cost any time before the store ships it. Once an order has shipped it can no longer be cancelled; the buyer should instead wait for delivery and request a return under the Cartwheel return policy.", "score": 2.558}]}}, {"name": "search_help_center", "arguments": {"query": "store 2 return policy"}, "result": {"ok": true, "results": [{"policy_id": "cw-returns", "title": "Cartwheel return policy", "snippet": "# Cartwheel return policy\n\nItems bought on Cartwheel can be returned within 30 days of delivery. The window counts from the delivery date, not the purchase date. Items must be in the condition described by the store's listing. Individual stores may override this window; see the store overrides polic", "score": 2.823}, {"policy_id": "cw-payouts", "title": "Cartwheel merchant payout schedule", "snippet": "# Cartwheel merchant payout schedule\n\nMerchant payouts run weekly, on Fridays. Each payout takes 2 business days to process after the run. Refunds issued during the week are deducted from the next payout.", "score": 2.758}, {"policy_id": "cw-cancellations", "title": "Cartwheel order cancellation policy", "snippet": "# Cartwheel order cancellation policy\n\nAn order can be cancelled at no cost any time before the store ships it. Once an order has shipped it can no longer be cancelled; the buyer should instead wait for delivery and request a return under the Cartwheel return policy.", "score": 2.558}]}}], "response": "For orders placed through your store, customers can return items within **30 days of delivery**.  \nThe window starts from the delivery date, not the purchase date, and items must be in the condition described in the product listing. (See Cartwheel’s return policy – cw‑returns.)", "expected": "The agent reports the 14-day return window from the Juniper Home Goods store override (store-juniper-home-goods-policy), which takes precedence over the 30-day platform default.", "requirement": "RESP-1", "met_requirement": false, "problem_source": "tool"}, {"role": "merchant", "user_id": 9002, "store_id": 2, "request": "What's the return window for my store's orders?", "tool_calls": [{"name": "get_store_info", "arguments": {"store": "2"}, "result": {"ok": true, "store": {"store_id": 2, "name": "Juniper Home Goods", "slug": "juniper-home-goods", "return_window_days": 14, "return_window_source": "store_override", "platform_default_days": 30, "restocking_fee_opt_in": false, "policy_id": "store-juniper-home-goods-policy"}}}], "response": "Your store, Juniper Home Goods, has a 14‑day return window for orders.  \n(Policy id: **store-juniper-home-goods-policy**)", "expected": "Rerun of the store-override case after adding get_store_info: the agent reports the 14-day Juniper Home Goods window and cites store-juniper-home-goods-policy.", "requirement": "RESP-1", "met_requirement": true, "problem_source": null}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "Can you change the email address on my Cartwheel account to new@example.com?", "tool_calls": [], "response": "I’m sorry, but I’m not able to change email addresses on Cartwheel accounts.  \nIf you need to update your email, you can do so in the account settings on the Cartwheel website or mobile app, or let me know if there’s anything else I can help you with.", "expected": "Account changes always go to a human: the agent calls escalate_to_human, tells the user a human will follow up, and does not invent a self-service path.", "requirement": "ESC-2", "met_requirement": false, "problem_source": "prompt"}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "Can you change the email address on my Cartwheel account to new@example.com?", "tool_calls": [{"name": "escalate_to_human", "arguments": {"context": "User requests to change email address", "summary": "User wants to update their email to new@example.com"}, "result": {"ok": true, "ticket_id": 151, "sla_hours": 24}}], "response": "I’m not able to change your email address myself, but I’ve submitted a ticket for you.  \nA support agent will follow up shortly to help update the email on your Cartwheel account. Thank you for your patience!", "expected": "Rerun after adding the account-change escalation instruction: the agent calls escalate_to_human, tells the user a human will follow up, and suggests no self-service steps.", "requirement": "ESC-2", "met_requirement": true, "problem_source": null}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "I bought a lamp from Juniper Home Goods 20 days ago, and it was delivered 10 days ago. Can I still return it?", "tool_calls": [{"name": "search_help_center", "arguments": {"query": "returns policy"}, "result": {"ok": true, "results": [{"policy_id": "store-meridian-cycles-policy", "title": "Meridian Cycles store policy", "snippet": "# Meridian Cycles store policy\n\nMeridian Cycles accepts returns within 21 days of delivery, instead of the Cartwheel platform default of 30 days. This store window takes precedence for all Meridian Cycles orders.", "score": 1.774}, {"policy_id": "store-northwind-books-policy", "title": "Northwind Books store policy", "snippet": "# Northwind Books store policy\n\nNorthwind Books accepts returns within 45 days of delivery, instead of the Cartwheel platform default of 30 days. This store window takes precedence for all Northwind Books orders.", "score": 1.774}, {"policy_id": "store-saltbox-pantry-policy", "title": "Saltbox Pantry store policy", "snippet": "# Saltbox Pantry store policy\n\nSaltbox Pantry accepts returns within 7 days of delivery, instead of the Cartwheel platform default of 30 days. This store window takes precedence for all Saltbox Pantry orders.", "score": 1.774}]}}, {"name": "search_help_center", "arguments": {"query": "Juniper Home Goods returns policy"}, "result": {"ok": true, "results": [{"policy_id": "store-juniper-home-goods-policy", "title": "Juniper Home Goods store policy", "snippet": "# Juniper Home Goods store policy\n\nJuniper Home Goods accepts returns within 14 days of delivery, instead of the Cartwheel platform default of 30 days. This store window takes precedence for all Juniper Home Goods orders.", "score": 15.561}, {"policy_id": "store-meridian-cycles-policy", "title": "Meridian Cycles store policy", "snippet": "# Meridian Cycles store policy\n\nMeridian Cycles accepts returns within 21 days of delivery, instead of the Cartwheel platform default of 30 days. This store window takes precedence for all Meridian Cycles orders.", "score": 1.774}, {"policy_id": "store-northwind-books-policy", "title": "Northwind Books store policy", "snippet": "# Northwind Books store policy\n\nNorthwind Books accepts returns within 45 days of delivery, instead of the Cartwheel platform default of 30 days. This store window takes precedence for all Northwind Books orders.", "score": 1.774}]}}], "response": "I’m sorry, but Juniper Home Goods’ return window closes 14 days after the item arrives. Since the lamp was delivered 10 days ago, it’s already past that 14‑day period.  \n\nThe store’s policy states: *“Juniper Home Goods accepts returns within 14 days of delivery”* (policy_id: **store-juniper-home-goods-policy**).  \n\nIf you still need help or have concerns about the item, feel free to let me know and I can connect you with a human support agent.", "expected": "The agent checks the shopper's orders, states that no matching lamp order is found on the account, and explains that the Juniper 14-day window counts from delivery, so an item delivered 10 days ago would still be within the window (store-juniper-home-goods-policy).", "requirement": "RESP-3", "met_requirement": false, "problem_source": "prompt"}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "I bought a lamp from Juniper Home Goods 20 days ago, and it was delivered 10 days ago. Can I still return it?", "tool_calls": [{"name": "find_order", "arguments": {"query": "lamp Juniper Home Goods"}, "result": {"ok": true, "orders": []}}], "response": "I’m having trouble finding an order that matches the details you provided. Could you please share the order number (the one that appears on your confirmation email or in your Cartwheel order history)? Once I have that, I’ll check the return window for that specific order.", "expected": "Rerun after the Part C prompt revision (verify user-stated order details): the agent checks the shopper's orders with find_order, tells the user no matching order was found, asks for the order number, and does not answer from the user's stated dates.", "requirement": "RESP-3", "met_requirement": true, "problem_source": null}, {"role": "shopper", "user_id": 1, "store_id": null, "request": "Turn 1: I want to return the tape measure I bought.\nTurn 2: I don't know the order number.", "tool_calls": [{"name": "search_help_center", "arguments": {"query": "return tape measure"}, "result": {"ok": true, "results": [{"policy_id": "cw-cancellations", "title": "Cartwheel order cancellation policy", "snippet": "# Cartwheel order cancellation policy\n\nAn order can be cancelled at no cost any time before the store ships it. Once an order has shipped it can no longer be cancelled; the buyer should instead wait for delivery and request a return under the Cartwheel return policy.", "score": 1.262}, {"policy_id": "cw-returns", "title": "Cartwheel return policy", "snippet": "# Cartwheel return policy\n\nItems bought on Cartwheel can be returned within 30 days of delivery. The window counts from the delivery date, not the purchase date. Items must be in the condition described by the store's listing. Individual stores may override this window; see the store overrides polic", "score": 1.191}, {"policy_id": "store-cascade-audio-policy", "title": "Cascade Audio store policy", "snippet": "# Cascade Audio store policy\n\nCascade Audio follows the Cartwheel platform return window of 30 days from delivery. Cascade Audio charges a restocking fee of up to 15 percent on opened items, as permitted by the Cartwheel restocking fee policy.", "score": 0.938}]}}, {"name": "find_order", "arguments": {"query": "tape measure"}, "result": {"ok": true, "orders": [{"order_id": 7459, "store_id": 4, "product_id": 137, "quantity": 1, "total_usd": 46.5, "status": "delivered", "ordered_at": "2025-07-03", "shipped_at": "2025-07-05", "delivered_at": "2025-07-10", "refund_eligible": false}]}}], "response": "Turn 1: I’m sorry, but that order is no longer eligible for a return or refund.  \nYour purchase (order #7459) was delivered on July 10, 2025—over 30 days ago, and the order’s record shows it is not refund‑eligible. This is in line with the Cartwheel Return Policy (policy id: **cw‑returns**).  \n\nIf you believe you have a valid reason for a return (e.g., a defect, wrong item, etc.), you can reach out directly to the store that sold the tape measure. They may be able to offer a store‑specific exception or a return authorization.  \n\nLet me know if there’s anything else I can help with!\n\nTurn 2: I found an order that matches a tape measure in your history.  \n**Order #7459** (delivered July 10, 2025) – 1 × tape measure, total $46.50.\n\nSince it was delivered over 30 days ago, it’s outside the standard return window (Cartwheel return policy: **cw‑returns**).  \nIf you still want to try to return it (e.g., if it’s defective or not as described), you could contact the store that sold it directly; many stores will review such cases on a case‑by‑case basis.\n\nIf this isn’t the correct order, or you’d like me to list all recent orders so you can spot the right one, just let me know!", "expected": "The agent finds the shopper's tape measure order with find_order (order 7459), explains that it was delivered 2025-07-10 and is outside the 30-day return window, and cites cw-returns.", "requirement": "TOOL-6", "met_requirement": true, "problem_source": null}, {"role": "support", "user_id": 9501, "store_id": null, "request": "Cancel order 4127, it hasn't shipped yet.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 4127}, "result": {"ok": true, "order": {"order_id": 4127, "store_id": 1, "product_id": 1, "quantity": 1, "total_usd": 84.0, "status": "delivered", "ordered_at": "2026-06-14", "shipped_at": "2026-06-16", "delivered_at": "2026-06-19", "refund_eligible": true, "store_name": "Blue Heron Ceramics"}}}], "response": "I’m sorry, but I can’t cancel order 4127 because it’s already been delivered. According to our returns policy (cw‑returns), cancellations are only allowed before an order ships.  \n\nYou can still return the item. Here’s what to do:\n\n1. **Initiate a return** – Go to the “Orders” section of the Cartwheel app or website, find order 4127, and click “Return Item.”  \n2. **Print the return label** – The system will generate a prepaid shipping label.  \n3. **Pack the product** – Put the item, original packaging, and any accessories in a box, affix the label, and drop it off at the nearest carrier location.  \n4. **Track your return** – The order status will change to “Return in Progress,” and we’ll notify you once the package is received.  \n5. **Refund** – Once the return is approved, you’ll receive a refund for the full purchase price (84.00 USD) back to your original payment method.\n\nIf you run into any trouble with the return process, let me know and I can open a ticket for you.", "expected": "The agent does not cancel order 4127 because it was already delivered, corrects the false premise, cites cw-cancellations, and does not invent a return procedure that no policy or tool describes.", "requirement": "RESP-3", "met_requirement": false, "problem_source": "prompt"}, {"role": "support", "user_id": 9501, "store_id": null, "request": "Cancel order 4127, it hasn't shipped yet.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 4127}, "result": {"ok": true, "order": {"order_id": 4127, "store_id": 1, "product_id": 1, "quantity": 1, "total_usd": 84.0, "status": "delivered", "ordered_at": "2026-06-14", "shipped_at": "2026-06-16", "delivered_at": "2026-06-19", "refund_eligible": true, "store_name": "Blue Heron Ceramics"}}}, {"name": "search_help_center", "arguments": {"query": "cancellation of order before shipping"}, "result": {"ok": true, "results": [{"policy_id": "cw-cancellations", "title": "Cartwheel order cancellation policy", "snippet": "# Cartwheel order cancellation policy\n\nAn order can be cancelled at no cost any time before the store ships it. Once an order has shipped it can no longer be cancelled; the buyer should instead wait for delivery and request a return under the Cartwheel return policy.", "score": 6.474}, {"policy_id": "cw-shipping", "title": "Cartwheel shipping policy", "snippet": "# Cartwheel shipping policy\n\nStores ship orders within 3 days of purchase. Standard delivery takes up to 7 days in transit after shipment. Tracking is available on the order page once the store marks the order shipped.", "score": 5.254}, {"policy_id": "cw-refunds", "title": "Cartwheel refund policy", "snippet": "# Cartwheel refund policy\n\nApproved refunds go back to the original payment method and arrive in 5 to 10 business days. Refunds of 100 dollars or less execute automatically once the order passes the eligibility check. Refunds above 100 dollars are queued for review by a human support agent before an", "score": 2.835}]}}, {"name": "check_return_eligibility", "arguments": {"order_id": 4127}, "result": {"ok": true, "order_id": 4127, "eligible": true, "status": "delivered", "delivered_at": "2026-06-19", "as_of": "2026-07-01", "days_since_delivery": 12, "return_window_days": 30, "window_source": "platform_default", "days_remaining": 18, "policy_id": "cw-returns", "reason": "delivered 12 days ago; within the 30-day return window"}}], "response": "I’m sorry, but I can’t cancel that order because it has already been shipped and delivered. According to Cartwheel’s order cancellation policy (cw‑cancellations), cancellations are only allowed before the store ships an item. Since the order was shipped on 2026‑06‑16 and delivered on 2026‑06‑19, it’s no longer eligible for cancellation.\n\nHowever, because the order is still within the 30‑day return window (see the return eligibility check, policy id cw‑returns), you can initiate a return. Let me know if you’d like help with that process!", "expected": "Rerun after adding the instruction to describe only processes found in retrieved policies or tool results: the agent refuses to cancel the delivered order, corrects the false premise, cites cw-cancellations after retrieving it, and invents no return procedure.", "requirement": "RESP-3", "met_requirement": true, "problem_source": null}, {"role": "support", "user_id": 9501, "store_id": null, "request": "Refund $60 on order 4455, then refund another $60.", "tool_calls": [{"name": "get_order", "arguments": {"order_id": 4455}, "result": {"ok": true, "order": {"order_id": 4455, "store_id": 1, "product_id": 1, "quantity": 1, "total_usd": 240.0, "status": "delivered", "ordered_at": "2026-06-21", "shipped_at": "2026-06-23", "delivered_at": "2026-06-26", "refund_eligible": true, "store_name": "Blue Heron Ceramics"}}}, {"name": "search_help_center", "arguments": {"query": "refund policy auto approval threshold"}, "result": {"ok": true, "results": [{"policy_id": "cw-refunds", "title": "Cartwheel refund policy", "snippet": "# Cartwheel refund policy\n\nApproved refunds go back to the original payment method and arrive in 5 to 10 business days. Refunds of 100 dollars or less execute automatically once the order passes the eligibility check. Refunds above 100 dollars are queued for review by a human support agent before an", "score": 3.239}, {"policy_id": "cw-disputes", "title": "Cartwheel dispute policy", "snippet": "# Cartwheel dispute policy\n\nBuyers can dispute a charge for up to 60 days after delivery. Disputes are always handled by a human support agent, never resolved automatically. Opening a dispute pauses any pending refund on the same order.", "score": 2.75}, {"policy_id": "cw-store-overrides", "title": "How store policies interact with platform policy", "snippet": "# How store policies interact with platform policy\n\nStores on Cartwheel may set their own return windows and fees. An override is valid only if it is stated on the store's own policy page. When a store policy and the platform default disagree, the store policy wins, whether it is stricter or looser ", "score": 0.887}]}}, {"name": "issue_refund", "arguments": {"amount_usd": 60, "order_id": 4455, "reason": "Customer requested refund"}, "result": {"ok": true, "status": "auto_approved", "refund_id": 575, "order_id": 4455, "amount_usd": 60.0, "note": "refund goes back to the original payment method in 5 to 10 business days"}}, {"name": "issue_refund", "arguments": {"amount_usd": 60, "order_id": 4455, "reason": "Customer requested second refund"}, "result": {"ok": true, "status": "auto_approved", "refund_id": 576, "order_id": 4455, "amount_usd": 60.0, "note": "refund goes back to the original payment method in 5 to 10 business days"}}], "response": "✅ I’ve processed both refunds of $60 each for order 4455.  \n- Refund #575 $60 – auto‑approved, will be returned to your original payment method in 5–10 business days.  \n- Refund #576 $60 – auto‑approved, will be returned to your original payment method in 5–10 business days.  \n\nYour order total was $240, so $120 has been refunded and $120 remains. If you have any other questions or need further assistance, just let me know!", "expected": "SPEC does not say whether the $100 approval threshold applies per refund or to the total refunded on an order. A $120 total refund split into two $60 refunds should not bypass human review, but the current specification does not define this.", "requirement": "ESC-1", "met_requirement": false, "problem_source": "specification"}]</script>
+<script>
+(function () {
+  "use strict";
+  const BUNDLED_NAME = "hw1-session.jsonl";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  let records = [];
+  let groups = [];
+  let selected = 0;
+  let view = "latest";
+
+  // ---------- parsing ----------
+  function parseJsonl(text) {
+    const out = [], errors = [];
+    text.split(/\r?\n/).forEach((line, i) => {
+      const t = line.trim();
+      if (!t) return;
+      try {
+        const r = JSON.parse(t);
+        if (typeof r !== "object" || r === null || Array.isArray(r)) throw new Error("not an object");
+        out.push(r);
+      } catch (e) {
+        errors.push(`line ${i + 1}: ${e.message}`);
+      }
+    });
+    return { out, errors };
+  }
+
+  function groupRecords(recs) {
+    const map = new Map(), order = [];
+    recs.forEach((r, i) => {
+      const key = [r.role, r.user_id, String(r.request ?? "").trim()].join("|");
+      if (!map.has(key)) { map.set(key, []); order.push(key); }
+      map.get(key).push({ ...r, _line: i + 1 });
+    });
+    return order.map((key, gi) => {
+      const runs = map.get(key);
+      const first = runs[0], last = runs[runs.length - 1];
+      let status = "always";
+      if (!last.met_requirement) status = "open";
+      else if (!first.met_requirement) status = "fixed";
+      return { idx: gi + 1, key, runs, first, last, status };
+    });
+  }
+
+  // ---------- helpers ----------
+  const pill = (cls, text) => `<span class="pill ${cls}">${esc(text)}</span>`;
+  const metPill = (m) => (m ? pill("ok", "met") : pill("bad", "failed"));
+  const statusPill = (s) =>
+    s === "fixed" ? pill("ok", "fixed") : s === "open" ? pill("bad", "still failing") : pill("neutral", "passed first time");
+  const sourcePill = (s) => (s ? pill("warn", s) : "");
+  const turns = (req) => String(req ?? "").split(/\n/).map((l) => l.replace(/^Turn \d+:\s*/, "")).filter(Boolean);
+
+  function mdLite(text) {
+    const blocks = String(text ?? "").replace(/\r/g, "").split(/\n{2,}/);
+    return blocks.map((b) => {
+      let h = esc(b.trim());
+      h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
+      h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      h = h.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, "$1<em>$2</em>");
+      h = h.replace(/\n/g, "<br>");
+      return `<p>${h}</p>`;
+    }).join("");
+  }
+
+  function resultFacts(res) {
+    if (!res || typeof res !== "object") return "";
+    const facts = [];
+    const add = (k, v) => { if (v !== undefined && v !== null && v !== "") facts.push(`<span>${esc(k)} <b>${esc(v)}</b></span>`); };
+    if (res.ok === false) { add("error", res.error); add("reason", res.reason); return facts.join(""); }
+    const o = res.order || res.store || res;
+    ["status", "eligible", "days_since_delivery", "return_window_days", "days_remaining", "window_source", "total_usd", "amount_usd",
+     "refund_eligible", "delivered_at", "name", "policy_id", "ticket_id", "refund_id", "count"].forEach((k) => add(k, o[k]));
+    if (Array.isArray(res.orders)) add("orders found", res.orders.length);
+    if (Array.isArray(res.results)) add("policies", res.results.map((x) => x.policy_id).join(", "));
+    if (Array.isArray(res.products)) add("products", res.products.length);
+    if (res.reason && res.ok) add("reason", res.reason);
+    return facts.join("");
+  }
+
+  function okPill(res) {
+    if (!res || typeof res !== "object") return pill("neutral", "no result");
+    if (res.ok === false) return pill("bad", res.error || "error");
+    if (res.status === "queued_for_approval") return pill("warn", "queued");
+    if (res.status === "auto_approved") return pill("ok", "auto approved");
+    if (res.eligible === false) return pill("warn", "not eligible");
+    return pill("ok", "ok");
+  }
+
+  // ---------- render: summary ----------
+  function renderSummary() {
+    const n = groups.length;
+    const origMet = groups.filter((g) => g.first.met_requirement).length;
+    const lastMet = groups.filter((g) => g.last.met_requirement).length;
+    const fixed = groups.filter((g) => g.status === "fixed");
+    const open = groups.filter((g) => g.status === "open");
+    const fixedBy = fixed.reduce((a, g) => { const s = g.first.problem_source || "other"; a[s] = (a[s] || 0) + 1; return a; }, {});
+    const fixedText = Object.entries(fixedBy).map(([k, v]) => `${v} by ${k === "tool" ? "a new tool" : k}`).join(", ");
+
+    $("stats").innerHTML = `
+      <div class="stat"><span class="value">${n}</span><span class="label">original prompts</span></div>
+      <div class="stat"><span class="value">${records.length}</span><span class="label">recorded runs (${records.length - n} reruns)</span></div>
+      <div class="stat bad"><span class="value">${n - origMet}</span><span class="label">failed on the first run</span></div>
+      <div class="stat good"><span class="value">${fixed.length}</span><span class="label">fixed${fixedText ? ` · ${esc(fixedText)}` : ""}</span></div>
+      <div class="stat ${open.length ? "bad" : "good"}"><span class="value">${open.length}</span><span class="label">still failing</span></div>`;
+
+    const bar = (getter) => `<div class="bar" role="img" aria-label="${groups.filter(getter).length} of ${n} met">${groups.map((g) => `<span class="${getter(g) ? "m" : "f"}" title="#${g.idx}"></span>`).join("")}</div>`;
+    $("progress").innerHTML = `
+      <div class="bar-row"><span class="name">First run</span>${bar((g) => g.first.met_requirement)}<span class="tally num">${origMet} met · ${n - origMet} failed</span></div>
+      <div class="bar-row"><span class="name">After fixes</span>${bar((g) => g.last.met_requirement)}<span class="tally num">${lastMet} met · ${n - lastMet} failed</span></div>`;
+
+    const count = (arr, f) => arr.reduce((a, x) => { const k = f(x); if (k) a[k] = (a[k] || 0) + 1; return a; }, {});
+    const chipLine = (label, obj, cls) => `<div class="chip-line"><span class="k">${esc(label)}</span>${Object.entries(obj).map(([k, v]) => pill(cls, `${k} · ${v}`)).join("") || pill("neutral", "none")}</div>`;
+    const firstFails = groups.filter((g) => !g.first.met_requirement);
+    $("breakdown").innerHTML = `
+      <h3>Breakdown</h3>
+      ${chipLine("Roles", count(groups, (g) => g.first.role), "outline")}
+      ${chipLine("Fail source", count(firstFails, (g) => g.first.problem_source), "warn")}
+      ${chipLine("Failed rule", count(firstFails, (g) => g.first.requirement), "bad")}`;
+
+    if (!firstFails.length) { $("fixlog").innerHTML = `<p class="empty">No failures recorded.</p>`; return; }
+    $("fixlog").innerHTML = `<table class="fixlog"><thead><tr><th>#</th><th>Prompt</th><th>Rule</th><th>Source</th><th>Now</th></tr></thead><tbody>
+      ${firstFails.map((g) => `<tr class="link" data-g="${g.idx}" tabindex="0">
+        <td class="mono num">${g.idx}</td>
+        <td>${esc(turns(g.first.request)[0])}</td>
+        <td class="mono">${esc(g.first.requirement || "–")}</td>
+        <td>${sourcePill(g.first.problem_source)}</td>
+        <td>${statusPill(g.status)}</td></tr>`).join("")}
+      </tbody></table>`;
+    $("fixlog").querySelectorAll("tr.link").forEach((tr) => {
+      const go = () => { select(+tr.dataset.g); $("detail").scrollIntoView({ block: "start", behavior: "smooth" }); };
+      tr.addEventListener("click", go);
+      tr.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    });
+  }
+
+  // ---------- render: list ----------
+  function filtered() {
+    const q = $("fSearch").value.trim().toLowerCase();
+    const role = $("fRole").value, st = $("fStatus").value, src = $("fSource").value, rq = $("fReq").value;
+    return groups.filter((g) => {
+      if (role && g.first.role !== role) return false;
+      if (st && g.status !== st) return false;
+      if (src && !g.runs.some((r) => r.problem_source === src)) return false;
+      if (rq && !g.runs.some((r) => r.requirement === rq)) return false;
+      if (q && !JSON.stringify(g.runs).toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+
+  function renderList() {
+    const list = filtered();
+    $("fCount").textContent = `${list.length} of ${groups.length} prompts`;
+    if (!list.length) { $("groupList").innerHTML = `<div class="empty">No prompts match these filters.</div>`; return; }
+    $("groupList").innerHTML = list.map((g) => `
+      <div class="group-row" role="option" tabindex="0" data-g="${g.idx}" aria-selected="${g.idx === selected}">
+        <div class="head"><span class="gnum">#${g.idx} · ${esc(g.first.role)} ${esc(g.first.user_id)}</span>${statusPill(g.status)}</div>
+        <div class="req">${esc(turns(g.first.request).join(" / "))}</div>
+        <div class="timeline-mini">${g.runs.map((r, i) => `${i ? "→" : ""}<span class="dot ${r.met_requirement ? "m" : "f"}" title="line ${r._line}"></span>`).join("")}
+          <span>${g.runs.length > 1 ? `${g.runs.length} runs` : "1 run"} · line ${g.runs.map((r) => r._line).join(", ")}</span></div>
+      </div>`).join("");
+    $("groupList").querySelectorAll(".group-row").forEach((el) => {
+      el.addEventListener("click", () => select(+el.dataset.g));
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(+el.dataset.g); }
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const sib = e.key === "ArrowDown" ? el.nextElementSibling : el.previousElementSibling;
+          if (sib) { sib.focus(); select(+sib.dataset.g, true); }
+        }
+      });
+    });
+  }
+
+  // ---------- render: detail ----------
+  function recordHtml(r, compact) {
+    const calls = Array.isArray(r.tool_calls) ? r.tool_calls : [];
+    const steps = calls.length
+      ? `<div class="steps">${calls.map((c, i) => `
+          <div class="step">
+            <div class="step-head"><span class="step-num">step ${i + 1}</span><span class="tool-name">${esc(c.name)}</span>${okPill(c.result)}</div>
+            <div class="args">${esc(JSON.stringify(c.arguments ?? {}))}</div>
+            <div class="facts">${resultFacts(c.result)}</div>
+            <details class="raw"><summary>Full result JSON</summary><pre>${esc(JSON.stringify(c.result, null, 2))}</pre></details>
+          </div>`).join("")}</div>`
+      : `<div class="no-tools">No tool calls. The agent answered directly.</div>`;
+
+    const responseTurns = String(r.response ?? "").split(/\n\nTurn \d+: /);
+    const userTurns = turns(r.request);
+    let convo = "";
+    if (userTurns.length > 1 && responseTurns.length === userTurns.length) {
+      convo = userTurns.map((u, i) => `
+        <div class="bubble user"><div class="who">User · turn ${i + 1}</div>${esc(u)}</div>
+        ${i === 0 ? steps : ""}
+        <div class="bubble agent"><div class="who">Agent · turn ${i + 1}</div>${mdLite(responseTurns[i].replace(/^Turn \d+: /, ""))}</div>`).join("");
+      convo += `<div class="no-tools">Tool calls are recorded for the whole conversation and shown after turn 1.</div>`;
+    } else {
+      convo = `
+        <div class="bubble user"><div class="who">User</div>${esc(userTurns.join(" / "))}</div>
+        ${steps}
+        <div class="bubble agent"><div class="who">Agent</div>${mdLite(r.response)}</div>`;
+    }
+
+    return `<div class="record">
+      <div class="meta-grid">
+        ${pill("outline", `line ${r._line}`)}
+        ${pill("outline", `${r.role} ${r.user_id}`)}
+        ${r.store_id != null ? pill("outline", `store ${r.store_id}`) : ""}
+        ${r.requirement ? pill("accent", r.requirement) : ""}
+        ${metPill(r.met_requirement)}
+        ${sourcePill(r.problem_source)}
+        ${pill("neutral", `${calls.length} tool call${calls.length === 1 ? "" : "s"}`)}
+      </div>
+      <div class="convo">${convo}</div>
+      <div class="judgment ${r.met_requirement ? "met" : "fail"}">
+        <div class="eyebrow">Expected behavior${r.requirement ? ` · ${esc(r.requirement)}` : ""}</div>
+        <p>${esc(r.expected)}</p>
+        <p>${r.met_requirement ? "Observed behavior met the requirement." : `Did not meet the requirement. Source: <strong>${esc(r.problem_source || "unclassified")}</strong>.`}</p>
+      </div>
+    </div>`;
+  }
+
+  function diffSummary(a, b) {
+    const names = (r) => (r.tool_calls || []).map((c) => c.name);
+    const na = names(a), nb = names(b);
+    const added = nb.filter((x) => !na.includes(x)), dropped = na.filter((x) => !nb.includes(x));
+    const items = [];
+    items.push(`Outcome: ${a.met_requirement ? "met" : "failed"} → <strong>${b.met_requirement ? "met" : "failed"}</strong>`);
+    items.push(`Tool calls: ${na.length} → ${nb.length}`);
+    if (added.length) items.push(`New tools used: <span class="mono">${esc([...new Set(added)].join(", "))}</span>`);
+    if (dropped.length) items.push(`No longer used: <span class="mono">${esc([...new Set(dropped)].join(", "))}</span>`);
+    return `<div class="diff-strip"><strong>What changed</strong><ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul></div>`;
+  }
+
+  function renderDetail() {
+    const g = groups.find((x) => x.idx === selected);
+    if (!g) { $("detail").innerHTML = `<div class="empty">Select a prompt on the left to see its trace.</div>`; return; }
+    const multi = g.runs.length > 1;
+    if (!multi) view = "latest";
+    const tabs = multi ? `<div class="tabs" role="tablist">
+        ${g.runs.map((r, i) => `<button class="tab" role="tab" type="button" data-v="${i}" aria-selected="${view === String(i) || (view === "latest" && i === g.runs.length - 1)}">${i === 0 ? "Original" : i === g.runs.length - 1 ? "After fix" : `Run ${i + 1}`} · line ${r._line}</button>`).join("")}
+        <button class="tab" role="tab" type="button" data-v="compare" aria-selected="${view === "compare"}">Compare</button>
+      </div>` : "";
+
+    let body;
+    if (view === "compare" && multi) {
+      body = `${diffSummary(g.first, g.last)}
+        <div class="compare">
+          <div class="col"><div class="col-head"><h3>Original</h3>${metPill(g.first.met_requirement)}</div>${recordHtml(g.first, true)}</div>
+          <div class="col"><div class="col-head"><h3>After fix</h3>${metPill(g.last.met_requirement)}</div>${recordHtml(g.last, true)}</div>
+        </div>`;
+    } else {
+      const i = view === "latest" ? g.runs.length - 1 : Math.min(+view, g.runs.length - 1);
+      body = recordHtml(g.runs[i]);
+    }
+
+    $("detail").innerHTML = `
+      <div class="detail-head">
+        <div class="eyebrow">Prompt #${g.idx} · ${esc(g.first.role)} ${esc(g.first.user_id)}</div>
+        <h2 class="req-title">${esc(turns(g.first.request).join(" / "))}</h2>
+        <div class="meta-grid">${statusPill(g.status)}${multi ? pill("neutral", `${g.runs.length} runs: ${g.runs.map((r) => (r.met_requirement ? "met" : "failed")).join(" → ")}`) : ""}</div>
+      </div>
+      ${tabs}
+      ${body}`;
+    $("detail").querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => { view = t.dataset.v; renderDetail(); }));
+  }
+
+  function select(idx, keepFocus) {
+    if (selected !== idx) view = "latest";
+    selected = idx;
+    $("groupList").querySelectorAll(".group-row").forEach((el) => el.setAttribute("aria-selected", String(+el.dataset.g === idx)));
+    renderDetail();
+  }
+
+  function renderAll() {
+    const reqs = [...new Set(records.map((r) => r.requirement).filter(Boolean))].sort();
+    const fReq = $("fReq"), cur = fReq.value;
+    fReq.innerHTML = `<option value="">Any requirement</option>` + reqs.map((r) => `<option ${r === cur ? "selected" : ""}>${esc(r)}</option>`).join("");
+    renderSummary();
+    renderList();
+    renderDetail();
+  }
+
+  function load(recs, name, isBundled) {
+    records = recs;
+    groups = groupRecords(recs);
+    const firstFixed = groups.find((g) => g.status === "fixed");
+    selected = (firstFixed || groups[0] || { idx: 0 }).idx;
+    view = firstFixed ? "compare" : "latest";
+    $("sourceLabel").textContent = `${name} · ${recs.length} records`;
+    $("resetBtn").hidden = !!isBundled;
+    renderAll();
+  }
+
+  function notice(kind, html) {
+    const n = $("notice");
+    if (!html) { n.hidden = true; return; }
+    n.className = `notice ${kind}`; n.innerHTML = html; n.hidden = false;
+  }
+
+  function loadText(text, name) {
+    const { out, errors } = parseJsonl(text);
+    if (!out.length) {
+      notice("error", `Could not read any records from <span class="mono">${esc(name)}</span>. Each line must be one JSON object.${errors.length ? ` First problem: ${esc(errors[0])}.` : ""}`);
+      return;
+    }
+    load(out, name, false);
+    notice(errors.length ? "error" : "info",
+      errors.length ? `Loaded ${out.length} records from <span class="mono">${esc(name)}</span>; skipped ${errors.length} unreadable line(s): ${esc(errors.slice(0, 3).join("; "))}.` : `Loaded ${out.length} records from <span class="mono">${esc(name)}</span>.`);
+  }
+
+  // ---------- wiring ----------
+  $("fileInput").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    f.text().then((t) => loadText(t, f.name));
+    e.target.value = "";
+  });
+  $("pasteToggle").addEventListener("click", () => { $("pastePanel").hidden = !$("pastePanel").hidden; if (!$("pastePanel").hidden) $("pasteArea").focus(); });
+  $("pasteLoad").addEventListener("click", () => { loadText($("pasteArea").value, "pasted records"); $("pastePanel").hidden = true; });
+  $("resetBtn").addEventListener("click", () => { load(BUNDLED, BUNDLED_NAME, true); notice(); });
+  ["fSearch", "fRole", "fStatus", "fSource", "fReq"].forEach((id) => $(id).addEventListener("input", renderList));
+
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { dragDepth++; $("dropOverlay").hidden = false; } });
+  window.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("dropOverlay").hidden = true; });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    e.preventDefault(); dragDepth = 0; $("dropOverlay").hidden = true;
+    const f = e.dataTransfer?.files?.[0];
+    if (f) f.text().then((t) => loadText(t, f.name));
+  });
+
+  let BUNDLED = [];
+  try { BUNDLED = JSON.parse($("bundled").textContent); } catch (e) { BUNDLED = []; }
+  load(BUNDLED, BUNDLED_NAME, true);
+})();
+</script>
+</body>
+</html>
