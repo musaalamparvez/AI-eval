@@ -4,6 +4,30 @@ My work for the course **Evaluating and Improving AI Agents**. The course uses o
 support agent, **Cartwheel**, across every homework, so this repo keeps one copy of
 the agent's code and a separate folder for each homework's results.
 
+## View the traces in a browser
+
+The **Cartwheel Trace Viewer** shows every recorded HW1 conversation: a first-run vs
+after-fix summary, a fix log, the tool calls in each conversation, and side-by-side
+before/after comparisons. It is a single HTML file with the data built in, so it needs
+no install, no server and no API key.
+
+**Option 1: open the file.** Download or clone this repo, then open
+[`homework-1/trace-viewer/index.html`](homework-1/trace-viewer/index.html) in any
+browser (double-click it, or drag it into a browser window). From a terminal:
+
+```bash
+git clone https://github.com/musaalamparvez/AI-eval.git
+open AI-eval/homework-1/trace-viewer/index.html        # macOS
+# xdg-open AI-eval/homework-1/trace-viewer/index.html  # Linux
+# start AI-eval\homework-1\trace-viewer\index.html     # Windows
+```
+
+**Option 2: load other data.** In the viewer, use **Load .jsonl file**, drag a file onto
+the page, or **Paste JSONL** to view any session log in the same format, for example a
+newer `homework-1/hw1-session.jsonl`.
+
+Clicking the file on GitHub shows its HTML source, not the page; download it first.
+
 ## Structure
 
 ```
