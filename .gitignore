@@ -1,0 +1,31 @@
+# Safety net for the whole repo. cartwheel/.gitignore adds the course's own rules.
+
+# Secrets: API keys and credentials stay local.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+secrets*.*
+
+# Local data and run state.
+*.db
+*.sqlite
+*.sqlite3
+.sessions.db
+
+# Personal working notes.
+.hw1-progress.md
+*-progress.md
+.notes/
+
+# Python and editor clutter.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
